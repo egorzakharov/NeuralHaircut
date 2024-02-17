@@ -11,7 +11,8 @@ from utils.config import cfg as pixie_cfg
 warnings.filterwarnings("ignore")
 
 
-def main(conf_path, batch_size, train_rotation, train_pose, train_shape, checkpoint_path, save_path):
+
+def main(conf_path, data_path, fitted_camera_path, use_scale, batch_size, train_rotation, train_pose, train_shape, checkpoint_path, save_path):
     with open(conf_path) as f:
         conf_text = f.read()
     conf = ConfigFactory.parse_string(conf_text)
@@ -20,9 +21,9 @@ def main(conf_path, batch_size, train_rotation, train_pose, train_shape, checkpo
     # Create SMPLX model from PIXIE
     smplx_model = SMPLX(pixie_cfg.model).to(device) 
 
-    dataset = Multiview_dataset(**conf['dataset'], device=conf['general.device'], batch_size=batch_size)
+    dataset = Multiview_dataset(data_path, fitted_camera_path, use_scale, **conf['dataset'], device=conf['general.device'], batch_size=batch_size)
 
-#         Create train losses
+    # Create train losses
     losses = []
     if conf.get_float('loss.fa_kpts_2d_weight'):
         losses += [KeypointsMatchingLoss(device=device, use_3d=False)]
@@ -66,6 +67,9 @@ def main(conf_path, batch_size, train_rotation, train_pose, train_shape, checkpo
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--conf', type=str, default='')
+    parser.add_argument('--data_path', type=str, default='')
+    parser.add_argument('--fitted_camera_path', type=str, default='')
+    parser.add_argument('--use_scale', type=bool, default=False)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--train_rotation', type=bool, default=False)
     parser.add_argument('--train_pose', type=bool, default=False)
@@ -76,6 +80,9 @@ if __name__ == '__main__':
     
     main(
         conf_path=args.conf,
+        data_path=args.data_path,
+        fitted_camera_path=args.fitted_camera_path,
+        use_scale=args.use_scale,
         batch_size=args.batch_size,
         train_rotation=args.train_rotation, 
         train_pose=args.train_pose,
