@@ -162,7 +162,11 @@ class Runner:
                 optimizer.step(closure)
 
                 tq.close()
-    
+
+        # Save the result
+        pred = self.forward(batch)
+        save_obj(os.path.join(self.save_path, 'mesh_final.obj'), pred['verts_world'][0], pred['faces_world']) 
+        self.opt_params.dump_json_dict(os.path.join(self.save_path, 'opt_params_final'))
     
     def dump_results(self, pred, step, epoch, batch_idx):
         save_obj(os.path.join(self.save_path, 'mesh', f'mesh{epoch}_{step}_{batch_idx}.obj'), pred['verts_world'][0], pred['faces_world']) 

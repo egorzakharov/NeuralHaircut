@@ -43,7 +43,9 @@ class OptParams:
 
         self.initialize_parameters()
 
-        if checkpoint_path:
+        if os.path.isfile(checkpoint_path):
+            self.upload_parameters(checkpoint_path)
+        elif checkpoint_path:
             files = glob.glob(f'{checkpoint_path}/*')
             files.sort(key=os.path.getmtime)
             self.upload_parameters(files[-1])
