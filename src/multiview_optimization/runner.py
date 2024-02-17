@@ -45,8 +45,7 @@ class Runner:
         train_pose, 
         train_shape,
         checkpoint_path
-    ):
-
+        ):
         self.dataset = dataset
         self.losses = losses
         self.smplx = smplx_model

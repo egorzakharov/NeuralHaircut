@@ -4,6 +4,8 @@ import pickle
 import os
 import glob
 
+
+
 def rec_convert(d, f):
     result = dict()
     for k, v in d.items():
@@ -12,6 +14,7 @@ def rec_convert(d, f):
         else:
             result[k] = f(v)
     return result
+
 
 class OptParams:
     def __init__(self, device, dataset, train_rotation, train_pose, train_shape, checkpoint_path):
@@ -45,11 +48,9 @@ class OptParams:
             files.sort(key=os.path.getmtime)
             self.upload_parameters(files[-1])
 
-    
     def tensor_kwargs(self, requires_grad=False):
         return dict(device=self.device, dtype=torch.float32, requires_grad=requires_grad)
     
-
     def upload_parameters(self, upload_path):
         print('upload parameters from', upload_path)
 
@@ -67,18 +68,16 @@ class OptParams:
         self.global_trans = torch.tensor(data_ckpt['global_trans'], **self.tensor_kwargs(requires_grad=self.train_rotation))
         self.global_scale = torch.tensor(data_ckpt['global_scale'], **self.tensor_kwargs(requires_grad=self.train_rotation))
     
-
     def initialize_parameters(self):
-        
         datas = []
         with open(self.dataset.pixie_init_path, 'rb') as fp:
             N = len(os.listdir(self.dataset.image_path))
             for i in range(N):
                 datas.append(pickle.load(fp))
 
-        shapes = np.array([i['shape'].cpu().numpy()[0] for i in datas])
-        exps = np.array([i['exp'].cpu().numpy()[0] for i in datas])
-        jaw_pose = np.array([i['jaw_pose'].cpu().numpy()[0] for i in datas])  
+        shapes = np.array([i['shape'] for i in datas])
+        exps = np.array([i['exp'] for i in datas])
+        jaw_pose = np.array([i['jaw_pose'] for i in datas])  
         
         # filter views that have no keypoints
         filtered_views = self.dataset.get_filter_views().cpu().numpy()

@@ -13,3 +13,6 @@
 [submodule "npbgpp"]
 	path = npbgpp
 	url = https://github.com/rakhimovv/npbgpp
+[submodule "PIXIE"]
+	path = PIXIE
+	url = https://github.com/yfeng95/PIXIE
