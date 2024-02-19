@@ -175,12 +175,12 @@ def prepare_visual(data_dict, tensor_name, preprocessing_op=None):
             b, _, h, w = tensor.shape
 
             tensor = torch.cat([tensor, torch.empty(b, 1, h, w, dtype=tensor.dtype).fill_(-1)], dim=1)
-        tensor = F.interpolate(tensor, (256, 256))
+        # tensor = F.interpolate(tensor, (256, 256))
         visuals += [tensor]
 
     return visuals
 
-def draw_stickman_body(keypoints, image_size, images=None):
+def draw_stickman_body(keypoints, width, height, images=None):
     ### Define drawing options ###
     edges_parts  = [[i] for i in range(25)]
 
@@ -198,20 +198,24 @@ def draw_stickman_body(keypoints, image_size, images=None):
 
     for i  in range(keypoints.shape[0]):
         if keypoints[i] is None:
-            stickmen.append(torch.zeros(3, image_size, image_size))
+            stickmen.append(torch.zeros(3, height, width))
             continue
 
         if isinstance(keypoints[i], torch.Tensor):
-            xy = (keypoints[i, :, :2].detach().cpu().numpy() + 1) / 2 * image_size
+            xy = (keypoints[i, :, :2].detach().cpu().numpy() + 1) / 2
+            xy[..., 0] *= width
+            xy[..., 1] *= height
         
         elif keypoints[i].max() < 1.0:
-            xy = keypoints[i, :, :2] * image_size
+            xy = keypoints[i, :, :2]
+            xy[..., 0] *= width
+            xy[..., 1] *= height
 
         else:
             xy = keypoints[i, :, :2]
 
         xy = xy[None, :, None].astype(np.int32)
-        stickman = np.ones((image_size, image_size, 3), np.uint8) if images is None else tensor2image(images[i])
+        stickman = np.ones((height, width, 3), np.uint8) if images is None else tensor2image(images[i])
         for edges, closed, color in zip(edges_parts, closed_parts, colors_parts):
             if len(edges) > 1:
                 stickman = cv2.polylines(stickman, xy[:, edges], closed, color, thickness=2)
@@ -226,7 +230,7 @@ def draw_stickman_body(keypoints, image_size, images=None):
 
     return stickmen
 
-def draw_stickman_fa(keypoints, image_size, images=None):
+def draw_stickman_fa(keypoints, width, height, images=None):
     ### Define drawing options ###
     edges_parts  = [
         list(range( 0, 17)), # face
@@ -251,21 +255,25 @@ def draw_stickman_fa(keypoints, image_size, images=None):
 
     for i  in range(keypoints.shape[0]):
         if keypoints[i] is None:
-            stickmen.append(torch.zeros(3, image_size, image_size))
+            stickmen.append(torch.zeros(3, height, width))
             continue
 
         if isinstance(keypoints[i], torch.Tensor):
-            xy = (keypoints[i, :, :2].detach().cpu().numpy() + 1) / 2 * image_size
-        
+            xy = (keypoints[i, :, :2].detach().cpu().numpy() + 1) / 2
+            xy[..., 0] *= width
+            xy[..., 1] *= height
+
         elif keypoints[i].max() < 1.0:
-            xy = keypoints[i, :, :2] * image_size
+            xy = keypoints[i, :, :2]
+            xy[..., 0] *= width
+            xy[..., 1] *= height
 
         else:
             xy = keypoints[i, :, :2]
 
         xy = xy[None, :, None].astype(np.int32)
 
-        stickman = np.ones((image_size, image_size, 3), np.uint8) if images is None else tensor2image(images[i])
+        stickman = np.ones((height, width, 3), np.uint8) if images is None else tensor2image(images[i])
 
         for edges, closed, color in zip(edges_parts, closed_parts, colors_parts):
             stickman = cv2.polylines(stickman, xy[:, edges], closed, color, thickness=2)
@@ -279,7 +287,7 @@ def draw_stickman_fa(keypoints, image_size, images=None):
     return stickmen
 
 
-def draw_stickman(keypoints, image_size, images=None):
+def draw_stickman(keypoints, width, height, images=None):
     ### Define drawing options ###
     edges_parts  = [
         list(range( 0, 17)), # face
@@ -304,21 +312,25 @@ def draw_stickman(keypoints, image_size, images=None):
 
     for i  in range(keypoints.shape[0]):
         if keypoints[i] is None:
-            stickmen.append(torch.zeros(3, image_size, image_size))
+            stickmen.append(torch.zeros(3, height, width))
             continue
 
         if isinstance(keypoints[i], torch.Tensor):
-            xy = (keypoints[i, :, :2].detach().cpu().numpy() + 1) / 2 * image_size
+            xy = (keypoints[i, :, :2].detach().cpu().numpy() + 1) / 2
+            xy[..., 0] *= width
+            xy[..., 1] *= height
         
         elif keypoints[i].max() < 1.0:
-            xy = keypoints[i, :, :2] * image_size
+            xy = keypoints[i, :, :2]
+            xy[..., 0] *= width
+            xy[..., 1] *= height
 
         else:
             xy = keypoints[i, :, :2]
 
         xy = xy[None, :, None].astype(np.int32)
 
-        stickman = np.ones((image_size, image_size, 3), np.uint8) if images is None else tensor2image(images[i])
+        stickman = np.ones((height, width, 3), np.uint8) if images is None else tensor2image(images[i])
 
         for edges, closed, color in zip(edges_parts, closed_parts, colors_parts):
             stickman = cv2.polylines(stickman, xy[:, edges], closed, color, thickness=2)

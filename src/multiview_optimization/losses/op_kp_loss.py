@@ -165,7 +165,8 @@ class OpenPoseLoss(DefaultLoss):
 
         lms_mask[:, self.ignore_inds, :] = 0
         
-        lm_pred = cam_project(lm_3d, data['intrinsics'])
+        # lm_pred = cam_project(lm_3d, data['intrinsics'])
+        lm_pred = lm_3d[..., :2]
 
         if self.kp_weights is not None:
             b = lms.shape[0]

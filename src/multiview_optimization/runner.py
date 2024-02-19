@@ -74,16 +74,21 @@ class Runner:
     @torch.no_grad()
     def get_visuals(self, lm_pred, lm_gt, label, visuals, batch):
         name = 'target_stickman' + str(label)
-        image_size = batch['img'].shape[1]
+        height = batch['img'].shape[1]
+        width = batch['img'].shape[2]
+        lm_gt[..., 0] = lm_gt[..., 0] / (width / 2) - 1
+        lm_gt[..., 1] = lm_gt[..., 1] / (height / 2) - 1
+        lm_pred[..., 0] = lm_pred[..., 0] / (width / 2) - 1
+        lm_pred[..., 1] = lm_pred[..., 1] / (height / 2) - 1
         if label == 'openpose_face':
-            visuals[name] = misc.draw_stickman(lm_gt / (image_size / 2) - 1, image_size, images=batch['img']) #lmks[-1, 1]
-            visuals['pred_' + name] = misc.draw_stickman(lm_pred / (image_size / 2) - 1, image_size, images=batch['img'])
+            visuals[name] = misc.draw_stickman(lm_gt, width, height, images=batch['img']) #lmks[-1, 1]
+            visuals['pred_' + name] = misc.draw_stickman(lm_pred, width, height, images=batch['img'])
         elif label =='openpose_body':
-            visuals[name] = misc.draw_stickman_body(lm_gt / (image_size / 2) - 1, image_size, images=batch['img'])
-            visuals['pred_' + name] = misc.draw_stickman_body(lm_pred / (image_size / 2) - 1, image_size, images=batch['img'])
+            visuals[name] = misc.draw_stickman_body(lm_gt, width, height, images=batch['img'])
+            visuals['pred_' + name] = misc.draw_stickman_body(lm_pred, width, height, images=batch['img'])
         else:
-            visuals[name] = misc.draw_stickman_fa(lm_gt/ (image_size / 2) - 1, image_size, images=batch['img'])
-            visuals['pred_' + name] = misc.draw_stickman_fa(lm_pred / (image_size / 2) - 1, image_size, images=batch['img'])
+            visuals[name] = misc.draw_stickman_fa(lm_gt, width, height, images=batch['img'])
+            visuals['pred_' + name] = misc.draw_stickman_fa(lm_pred, width, height, images=batch['img'])
         return visuals
     
 
@@ -138,8 +143,8 @@ class Runner:
                         loss_str, _ = log(loss_str, loss.label, loss_value)
                         loss_values.append(loss_value)
                         if loss.label ==  'openpose_face' or loss.label ==  'openpose_body' or loss.label == 'fa_kpts':
-                            visuals = self.get_visuals(lm_pred, lm_gt, loss.label, visuals, batch)                            
-                    
+                            visuals = self.get_visuals(lm_pred.clone(), lm_gt.clone(), loss.label, visuals, batch)                            
+
                     if step % 10 == 0:
                         self.dump_results(pred, step, epoch, batch_idx)
                         
@@ -217,22 +222,36 @@ class Runner:
             result['verts_world'] = verts
             result['faces_world'] = self.smplx.faces_tensor
         
-#       get extrinsics
-        extrinsics_rot = batch['extrinsics_rvec'].unsqueeze(1)
-        extrinsics_trans = batch['extrinsics_tvec'].unsqueeze(1)
+# #       get extrinsics
+#         extrinsics_rot = batch['extrinsics_rvec'].unsqueeze(1)
+#         extrinsics_trans = batch['extrinsics_tvec'].unsqueeze(1)
         
-#         world to camera transform
-        joints = torch.matmul(extrinsics_rot.repeat(1, joints.shape[1], 1, 1), joints.unsqueeze(-1)).squeeze(-1)
-        verts = torch.matmul(extrinsics_rot.repeat(1, verts.shape[1], 1, 1), verts.unsqueeze(-1)).squeeze(-1)
-        landmarks = torch.matmul(extrinsics_rot.repeat(1, landmarks.shape[1], 1, 1), landmarks.unsqueeze(-1)).squeeze(-1)
+# #         world to camera transform
+#         joints = torch.matmul(extrinsics_rot.repeat(1, joints.shape[1], 1, 1), joints.unsqueeze(-1)).squeeze(-1)
+#         verts = torch.matmul(extrinsics_rot.repeat(1, verts.shape[1], 1, 1), verts.unsqueeze(-1)).squeeze(-1)
+#         landmarks = torch.matmul(extrinsics_rot.repeat(1, landmarks.shape[1], 1, 1), landmarks.unsqueeze(-1)).squeeze(-1)
 
-        Jtr = joints + extrinsics_trans
-        verts_trans = verts + extrinsics_trans
-        landmarks += extrinsics_trans
+#         Jtr = joints + extrinsics_trans
+#         verts_trans = verts + extrinsics_trans
+#         landmarks_trans += extrinsics_trans
+
+        def project(verts, matrix, width, height):
+            p_hom = (verts[:, None, :] @ matrix[:, :3, :] + matrix[:, [3]])[:, 0]
+            p_w = 1.0 / (p_hom[:, [3]] + 0.0000001)
+            p_proj = p_hom[:, :3] * p_w
+            p_proj[:, 0] = ((p_proj[:, 0] + 1.0) * width - 1.0) * 0.5
+            p_proj[:, 1] = ((p_proj[:, 1] + 1.0) * height - 1.0) * 0.5
+            return p_proj
+
+        projmatrix = batch['projection'].unsqueeze(1)
+        h, w = batch['img'].shape[2:]
+        Jtr = project(joints.view(-1, 3), projmatrix.repeat(1, joints.shape[1], 1, 1).view(-1, 4, 4), w, h).view(joints.shape)
+        verts_trans = project(verts.view(-1, 3), projmatrix.repeat(1, verts.shape[1], 1, 1).view(-1, 4, 4), w, h).view(verts.shape)
+        landmarks_trans = project(landmarks.view(-1, 3), projmatrix.repeat(1, landmarks.shape[1], 1, 1).view(-1, 4, 4), w, h).view(landmarks.shape)
 
         result['verts_extrinsics'] = verts #[bs, 10475, 3]
         result['verts'] = verts_trans 
         result['Jtr'] = Jtr #[166, 3]
         result['betas'] = self.opt_params.beta
-        result['face_kpt'] = landmarks
+        result['face_kpt'] = landmarks_trans
         return result

@@ -23,8 +23,9 @@ class KeypointsMatchingLoss(nn.Module):
         self.label = 'fa_kpts'
         self.use_3d = use_3d
 
-    def compute(self,  prediction, data, img_size=512, weight=1.):
-        pred_lmks_2d = cam_project(prediction['face_kpt'], data['intrinsics'])
+    def compute(self, prediction, data, img_size=512, weight=1.):
+        # pred_lmks_2d = cam_project(prediction['face_kpt'], data['intrinsics'])
+        pred_lmks_2d = prediction['face_kpt'][..., :2]
         pred_lmks_2d = torch.cat([pred_lmks_2d[:,-17:], pred_lmks_2d[:,:-17]], dim=1) 
         gt_lmks = data['lmks3d'][:, :, :-1] if self.use_3d  else data['lmks']
         diff = (pred_lmks_2d - gt_lmks) / img_size

@@ -53,34 +53,43 @@ class Multiview_dataset(Dataset):
         
         self.fitted_camera_path = fitted_camera_path
 
-        imgs_list = sorted(os.listdir(self.image_path))
-        imgs_list_full = sorted(os.listdir(self.image_path))
-        
+        imgs_list = [im_name.split('.')[0] for im_name in sorted(os.listdir(self.image_path))]
+ 
         if views_idx:
             with open(views_idx, 'rb') as f:
                 filter_idx = pickle.load(f) 
                 imgs_list =  [imgs_list[i] for i in filter_idx]
 
-        images_np = np.stack([imread(os.path.join(self.image_path, im_name)) for im_name in imgs_list])
+        images_np = np.stack([imread(os.path.join(self.image_path, f'{im_name}.png')) for im_name in imgs_list])
         images = torch.from_numpy((images_np.astype(np.float32) / 255.0).transpose(0, 3, 1, 2)).float()
 
-        self.cams = np.load(f'{data_path}/colmap/cameras.npz', allow_pickle=True)
+        if fitted_camera_path:
+            print('Overwriting COLMAP cameras with optimized cameras')
+            world_mats_dict = pickle.load(open(fitted_camera_path, 'rb'))
+            world_mats_np = [world_mats_dict[im_name].numpy() for im_name in imgs_list]
+            scale_mats_np = [np.eye(4) for _ in imgs_list]
 
-        scale_mat = np.eye(4, dtype=np.float32)        
-        if self.scale_path:
-            with open(self.scale_path, 'rb') as f:
-                transform = pickle.load(f)
-                print('upload transform', transform, self.scale_path)
-                scale_mat[:3, :3] *= transform['scale']
-                scale_mat[:3, 3] = np.array(transform['translation'])
+        else:
+            self.cams = np.load(f'{data_path}/cameras.npz', allow_pickle=True)
+            world_mats_np = [self.cams[f'world_mat_{im_name}'] for im_name in imgs_list]
 
-        world_mats_np = [self.cams['arr_0'][idx].astype(np.float32) for idx in range(len(imgs_list_full) )]
-        scale_mats_np = [scale_mat.astype(np.float32) for idx in range(len(imgs_list_full) )]
-    
+            scale_mat = np.eye(4, dtype=np.float32)        
+            if self.scale_path:
+                with open(self.scale_path, 'rb') as f:
+                    transform = pickle.load(f)
+                    print('upload transform', transform, self.scale_path)
+                    scale_mat[:3, :3] *= transform['scale']
+                    scale_mat[:3, 3] = np.array(transform['translation'])
+                scale_mats_np = [scale_mat for _ in range(len(imgs_list) )]
+            else:
+                scale_mats_np = [self.cams[f'scale_mat_{im_name}'] for im_name in imgs_list]
+        
         intrinsics_all = []
         pose_all = []
+        proj_all = []
         for scale_mat, world_mat in zip(scale_mats_np, world_mats_np):
             P = world_mat @ scale_mat
+            proj_all.append(torch.from_numpy(P.copy()).float())
             P = P[:3, :4]
             intrinsics, pose = load_K_Rt_from_P(None, P)
             intrinsics_all.append(torch.from_numpy(intrinsics).float())
@@ -88,10 +97,7 @@ class Multiview_dataset(Dataset):
 
         intrinsics_all = torch.stack(intrinsics_all).to(device) # [n_images, 4, 4]
         pose_all = torch.stack(pose_all).to(device) # [n_images, 4, 4]
-
-        if fitted_camera_path:
-            pose_residual_all = torch.load(fitted_camera_path)
-            pose_all = pose_residual_all @ pose_all
+        proj_all = torch.stack(proj_all).to(device)
 
         if views_idx:
             with open(views_idx, 'rb') as f:
@@ -104,15 +110,19 @@ class Multiview_dataset(Dataset):
 
         intrinsics_all = intrinsics_all[:, :3, :3]
         
-        lmks = pickle.load(open(f'{data_path}/face_alignment/lmks_2d.pkl', 'rb'))
-        lmks3d = pickle.load(open(f'{data_path}/face_alignment/lmks_3d.pkl', 'rb'))
+        lmks_dict = pickle.load(open(f'{data_path}/face_alignment/lmks_2d.pkl', 'rb'))
+        lmks3d_dict = pickle.load(open(f'{data_path}/face_alignment/lmks_3d.pkl', 'rb'))
+        
+        lmks = [lmks_dict[im_name] if im_name in lmks_dict.keys() else None for im_name in imgs_list]
+        lmks3d = [lmks3d_dict[im_name] if im_name in lmks3d_dict.keys() else None for im_name in imgs_list]
 
         # took views that have openpose keypoints
-        data_openpose = []
+        data_openpose_dict = {}
         sns = sorted(os.listdir(self.openpose_kp_path))
         for sn in sns:
             with open(os.path.join(self.openpose_kp_path, sn), 'r') as f:
-                data_openpose.append(json.load(f))
+                data_openpose_dict[sn.replace('_keypoints.json', '')] = json.load(f)
+        data_openpose = [data_openpose_dict[im_name] for im_name in imgs_list]
 
         self.good_views  = []
         mapping = dict(zip(filter_idx, np.arange(len(imgs_list))))
@@ -136,8 +146,11 @@ class Multiview_dataset(Dataset):
         self.lmks = torch.from_numpy(np.stack([lmks[i] for i in self.good_views]))
         self.lmks3d = torch.from_numpy(np.stack([lmks3d[i] for i in self.good_views]))
         self.images = images[self.good_views]
+        self.proj_all = proj_all[self.good_views]
         self.poses = torch.inverse(pose_all[self.good_views])
         self.intrinsics_all = intrinsics_all[self.good_views]
+
+        print('Fitting using the following views:', [imgs_list[i] for i in self.good_views])
     
     def get_filter_views(self):
         return torch.tensor(self.good_views).to(self.device)
@@ -148,6 +161,7 @@ class Multiview_dataset(Dataset):
                 'img': self.images[index].to(self.device), 
                 'lmks': self.lmks[index].to(self.device),
                 'lmks3d':self.lmks3d[index].to(self.device), 
+                'projection': self.proj_all[index].to(self.device),
                 'extrinsics_rvec': self.poses[index, :3, :3].to(self.device),
                 'extrinsics_tvec': self.poses[index, :3, 3].to(self.device),
                 'frame_ids': torch.tensor(index, dtype=torch.long).to(self.device),

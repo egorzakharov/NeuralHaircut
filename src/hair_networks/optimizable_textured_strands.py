@@ -22,7 +22,7 @@ from copy import deepcopy
 import os
 import trimesh
 import cv2
-
+import pathlib
 
 sys.path.append(os.path.join(sys.path[0], 'k-diffusion'))
 from k_diffusion import config 
@@ -58,18 +58,22 @@ class OptimizableTexturedStrands(nn.Module):
                  geometry_descriptor_size,
                  appearance_descriptor_size,
                  decoder_checkpoint_path,
-                 path_to_scale = None,
+                 path_to_scale=None,
                  cut_scalp=None, 
-                 diffusion_cfg=None
+                 diffusion_cfg=None,
+                 data_dir=None
                  ):
         super().__init__()
-    
-        scalp_vert_idx = torch.load('./data/new_scalp_vertex_idx.pth').long().cuda() # indices of scalp vertices
-        scalp_faces = torch.load('./data/new_scalp_faces.pth')[None].cuda() # faces that form a scalp
-        scalp_uvs = torch.load('./data/new_scalp_uvcoords.pth').cuda()[None] # generated in Blender uv map for the scalp
+        file_path = pathlib.Path(__file__).parent.resolve()
+        scalp_vert_idx = torch.load(f'{file_path}/../../data/new_scalp_vertex_idx.pth').long().cuda() # indices of scalp vertices
+        scalp_faces = torch.load(f'{file_path}/../../data/new_scalp_faces.pth')[None].cuda() # faces that form a scalp
+        scalp_uvs = torch.load(f'{file_path}/../../data/new_scalp_uvcoords.pth').cuda()[None] # generated in Blender uv map for the scalp
 
         # Load FLAME head mesh
-        verts, faces, _ = load_obj(path_to_mesh, device='cuda')
+        if data_dir is not None:
+            verts, faces, _ = load_obj(f'{data_dir}/flame_fitting/stage_3/mesh_final.obj', device='cuda')
+        else:
+            verts, faces, _ = load_obj(path_to_mesh, device='cuda')
         
         # Transform head mesh if it's not in unit sphere (same scale used for world-->unit_sphere transform)
         self.transform = None
@@ -94,8 +98,12 @@ class OptimizableTexturedStrands(nn.Module):
         
         # If we want to use different scalp vertices for scene
         if cut_scalp:
-            with open(cut_scalp, 'rb') as f:
-                full_scalp_list = sorted(pickle.load(f))
+            if data_dir is not None:
+                with open(f'{data_dir}/flame_fitting/scalp_data/cut_scalp_verts.pickle', 'rb') as f:
+                    full_scalp_list = sorted(pickle.load(f))
+            else:
+                with open(cut_scalp, 'rb') as f:
+                    full_scalp_list = sorted(pickle.load(f))
                 
             a = np.array(full_scalp_list)
             b = np.arange(a.shape[0])
@@ -147,6 +155,7 @@ class OptimizableTexturedStrands(nn.Module):
         self.faces_count_dict = dict(zip(idxes.cpu().numpy(), counts.cpu().numpy()))
         
         # Decoder predicts the strands from the embeddings
+        decoder_checkpoint_path = f'{file_path}/../../pretrained_models/strand_prior/strand_ckpt.pth'
         self.strand_decoder = Decoder(None, latent_dim=geometry_descriptor_size, length=99).eval()
         self.strand_decoder.load_state_dict(torch.load(decoder_checkpoint_path)['decoder'])
         param_to_buffer(self.strand_decoder)
@@ -157,6 +166,7 @@ class OptimizableTexturedStrands(nn.Module):
         if self.use_diffusion:
             ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=diffusion_cfg['model']['skip_stages'] > 0)
             self.accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=1)
+            print(self.accelerator.device)
 
             # Initialize diffusion model
             inner_model = config.make_model(diffusion_cfg)
@@ -165,9 +175,11 @@ class OptimizableTexturedStrands(nn.Module):
             self.model_ema.eval()
             
             # Upload pretrained on synthetic data checkpoint
-            ckpt = torch.load(diffusion_cfg['dif_path'], map_location='cpu')
+            diffusion_checkpoint_path = f'{file_path}/../../pretrained_models/diffusion_prior/dif_ckpt.pth'
+            ckpt = torch.load(diffusion_checkpoint_path, map_location='cpu')
             self.accelerator.unwrap_model(self.model_ema.inner_model).load_state_dict(ckpt['model_ema'])
             param_to_buffer(self.model_ema)
+            print(self.model_ema)
 
             self.diffusion_input = diffusion_cfg['model']['input_size'][0]
             self.sample_density = config.make_sample_density(diffusion_cfg['model'])
@@ -175,11 +187,16 @@ class OptimizableTexturedStrands(nn.Module):
             self.diffuse_bs = diffusion_cfg['diffuse_bs']
             
             # Load scalp mask for hairstyle
-            self.diffuse_mask = diffusion_cfg.get('diffuse_mask', None) 
-            print('diffuse mask', self.diffuse_mask)
+            if data_dir is not None:
+                self.diffuse_mask = f'{data_dir}/flame_fitting/scalp_data/dif_mask.png'
+            else:
+                self.diffuse_mask = diffusion_cfg.get('diffuse_mask', None) 
             
-            if self.diffuse_mask: 
+            if os.path.exists(self.diffuse_mask) and self.diffuse_mask:
+                print(f'Loading diffuse mask {self.diffuse_mask}')
                 self.diffuse_mask = torch.tensor(cv2.imread(self.diffuse_mask) / 255)[:, :, :1].squeeze(-1).cuda()
+            else:
+                self.diffuse_mask = torch.ones(256, 256).cuda()
     
     def init_scalp_basis(self, scalp_uvs):         
 

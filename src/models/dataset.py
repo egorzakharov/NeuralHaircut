@@ -301,10 +301,13 @@ class Dataset:
         
 
 class MonocularDataset(Dataset):
-    def __init__(self, conf):
+    def __init__(self, conf, data_dir = None):
         self.device = torch.device('cuda')
         self.conf = conf
-        self.data_dir = Path(conf.get('data_dir'))
+        if data_dir is not None:
+            self.data_dir = Path(data_dir)
+        else:
+            self.data_dir = Path(conf.get('data_dir'))
         self.render_cameras_name = conf.get('render_cameras_name')
         self.object_cameras_name = conf.get('object_cameras_name')
 
