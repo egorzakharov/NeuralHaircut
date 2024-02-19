@@ -34,13 +34,12 @@ from src.diffusion_prior.diffusion import make_denoiser_wrapper
 
 
 def downsample_texture(rect_size, downsample_size):
-        b = torch.linspace(0, rect_size**2 - 1, rect_size**2).reshape(rect_size, rect_size)
+        b = torch.linspace(0, rect_size**2 - 1, rect_size**2, device="cuda").reshape(rect_size, rect_size)
         
         patch_size = rect_size // downsample_size
         unf = torch.nn.Unfold(
             kernel_size=patch_size,
-            stride=patch_size
-                             )
+            stride=patch_size).cuda()
         unfo = unf(b[None, None]).reshape(-1, downsample_size**2)
         idx = torch.randint(low=0, high=patch_size**2, size=(1,))
         idx_ = idx.repeat(downsample_size**2,)
