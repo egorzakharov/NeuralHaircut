@@ -60,7 +60,8 @@ class OptimizableTexturedStrands(nn.Module):
                  path_to_scale=None,
                  cut_scalp=None, 
                  diffusion_cfg=None,
-                 data_dir=None
+                 data_dir=None,
+                 num_guiding_strands=None
                  ):
         super().__init__()
         file_path = pathlib.Path(__file__).parent.resolve()
@@ -118,7 +119,11 @@ class OptimizableTexturedStrands(nn.Module):
         
         self.scalp_mesh.textures = TexturesVertex(scalp_uvs)
 
-        self.num_strands = num_strands
+        # For 3D interpolation
+        self.use_guiding_strands = num_guiding_strands is not None
+        self.num_guiding_strands = num_guiding_strands if self.use_guiding_strands else 0
+
+        self.num_strands = num_strands - self.num_guiding_strands
         self.max_num_strands = max_num_strands
         self.geometry_descriptor_size = geometry_descriptor_size
         self.appearance_descriptor_size = appearance_descriptor_size
@@ -141,7 +146,10 @@ class OptimizableTexturedStrands(nn.Module):
         
         # For uniform faces selection
         self.N_faces =  self.scalp_mesh.faces_packed()[None].shape[1]   
-        self.m, self.q = num_strands // self.N_faces, num_strands % self.N_faces
+        self.m, self.q = self.num_strands // self.N_faces, self.num_strands % self.N_faces
+        
+        if self.use_guiding_strands:
+            self.m_gdn, self.q_gdn = self.num_guiding_strands // self.N_faces, self.num_guiding_strands % self.N_faces
         
         self.faces_dict = {}
         for idx, f in enumerate(face_idx[0].cpu().numpy()):
@@ -165,7 +173,6 @@ class OptimizableTexturedStrands(nn.Module):
         if self.use_diffusion:
             ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=diffusion_cfg['model']['skip_stages'] > 0)
             self.accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=1)
-            print(self.accelerator.device)
 
             # Initialize diffusion model
             inner_model = config.make_model(diffusion_cfg)
@@ -178,7 +185,6 @@ class OptimizableTexturedStrands(nn.Module):
             ckpt = torch.load(diffusion_checkpoint_path, map_location='cpu')
             self.accelerator.unwrap_model(self.model_ema.inner_model).load_state_dict(ckpt['model_ema'])
             param_to_buffer(self.model_ema)
-            print(self.model_ema)
 
             self.diffusion_input = diffusion_cfg['model']['input_size'][0]
             self.sample_density = config.make_sample_density(diffusion_cfg['model'])
@@ -258,10 +264,14 @@ class OptimizableTexturedStrands(nn.Module):
 
             diffusion_dict['L_diff'] = L_diff.mean()       
         
+        m = self.m_gdn if self.use_guiding_strands else self.m
+        q = self.q_gdn if self.use_guiding_strands else self.q
+        num_strands = self.num_guiding_strands if self.use_guiding_strands else self.num_strands
+
         # Sample idxes from texture
-        if self.m > 0 :
+        if m:
             # If the #sampled strands > #scalp faces, then we try to sample more uniformly for better convergence
-            f_idx, count = torch.cat((torch.arange(self.N_faces).repeat(self.m), torch.randperm(self.N_faces)[:self.q])).unique(return_counts=True)
+            f_idx, count = torch.cat((torch.arange(self.N_faces).repeat(m), torch.randperm(self.N_faces)[:q])).unique(return_counts=True)
             
             current_iter =  dict(zip(f_idx.cpu().numpy(), count.cpu().numpy()))
             iter_idx = []
@@ -271,7 +281,7 @@ class OptimizableTexturedStrands(nn.Module):
                 iter_idx.append(cur_idx_list)
             idx = torch.tensor(list(itertools.chain(*iter_idx)))
         else:
-            idx = torch.randperm(self.max_num_strands, device=texture.device)[:self.num_strands]
+            idx = torch.randperm(self.max_num_strands, device=texture.device)[:num_strands]
 
         origins = self.origins[idx]
         uvs = self.uvs[idx]
@@ -296,8 +306,68 @@ class OptimizableTexturedStrands(nn.Module):
             dim=1
         )
 
+        if self.use_guiding_strands:
+            # Sample the remaining indices from the texture            
+            if self.m:
+                # If the #sampled strands > #scalp faces, then we try to sample more uniformly for better convergence
+                f_idx, count = torch.cat((torch.arange(self.N_faces).repeat(self.m), torch.randperm(self.N_faces)[:self.q])).unique(return_counts=True)
+                
+                current_iter =  dict(zip(f_idx.cpu().numpy(), count.cpu().numpy()))
+                iter_idx = []
+
+                for i in range(self.N_faces):
+                    cur_idx_list = torch.tensor(self.faces_dict[i])[torch.randperm(self.faces_count_dict[i])[:current_iter[i]]].tolist()
+                    iter_idx.append(cur_idx_list)
+                idx = torch.tensor(list(itertools.chain(*iter_idx)))
+            else:
+                idx = torch.randperm(self.max_num_strands, device=texture.device)[:self.num_strands]
+            
+            origins_gdn = origins
+            uvs_gdn = uvs
+            local2world_gdn = local2world
+            p_local_gdn = p_local
+            
+            origins_int = self.origins[idx]
+            uvs_int = self.uvs[idx]
+            local2world_int = self.local2world[idx]
+            
+            # Find K nearest neighbours for each of the interpolated points in the UV space
+            K = 4
+
+            dist = ((uvs_int.view(-1, 1, 2) - uvs_gdn.view(1, -1, 2))**2).sum(-1) # num_strands x num_guiding_strands
+            knn_dist, knn_idx = torch.sort(dist, dim=1)
+            w = 1 / (knn_dist[:, :K] + 1e-7)
+            w = w / w.sum(dim=-1, keepdim=True)
+            
+            p_local_int_nearest = p_local[knn_idx[:, 0]]            
+            p_local_int_bilinear = (p_local[knn_idx[:, :K]] * w[:, :, None, None]).sum(dim=1)
+            
+            # Calculate cosine similarity between neighbouring guiding strands to get blending alphas (eq. 4 of HAAR)
+            knn_v = v[knn_idx[:, :K]]
+            csim_full = torch.nn.functional.cosine_similarity(knn_v.view(-1, K, 1, 99, 3), knn_v.view(-1, 1, K, 99, 3), dim=-1).mean(-1) # num_guiding_strands x K x K
+            j, k = torch.triu_indices(K, K, device=csim_full.device).split([1, 1], dim=0)
+            i = torch.arange(self.num_guiding_strands, device=csim_full.device).repeat_interleave(j.shape[1])
+            j = j[0].repeat(self.num_guiding_strands)
+            k = k[0].repeat(self.num_guiding_strands)
+            csim = csim_full[i, j, k].view(self.num_guiding_strands, -1).mean(-1)
+            
+            alpha = torch.where(csim <= 0.9, 1 - 1.63 * csim**5, 0.4 - 0.4 * csim)
+            alpha_int = (alpha[knn_idx[:, :K]] * w).sum(dim=1)[:, None, None]
+            p_local_int = p_local_int_nearest * alpha_int + p_local_int_bilinear * (1 - alpha_int)
+
+            p_local = torch.cat([p_local_gdn, p_local_int])
+            local2world = torch.cat([local2world_gdn, local2world_int])
+            origins = torch.cat([origins_gdn, origins_int])
+
+            if self.appearance_descriptor_size:
+                # Get latents for the samples
+                z_int = F.grid_sample(texture, uvs_int[None, None])[0, :, 0].transpose(0, 1) # num_strands, C
+                z_app_int = z_int[:, self.geometry_descriptor_size:]
+                z_app = torch.cat([z_app, z_app_int])
+
         p = (local2world[:, None] @ p_local[..., None])[:, :, :3, 0] + origins[:, None] # [num_strands, strang_length, 3]
-        return p, z_geom, z_app,  diffusion_dict
+
+        return p, z_geom, z_app, diffusion_dict
     
 
     def forward_inference(self, num_strands): 
