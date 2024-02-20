@@ -120,7 +120,7 @@ class OptimizableTexturedStrands(nn.Module):
         self.scalp_mesh.textures = TexturesVertex(scalp_uvs)
 
         # For 3D interpolation
-        self.use_guiding_strands = num_guiding_strands is not None
+        self.use_guiding_strands = num_guiding_strands is not None and num_guiding_strands > 0
         self.num_guiding_strands = num_guiding_strands if self.use_guiding_strands else 0
 
         self.num_strands = num_strands - self.num_guiding_strands
