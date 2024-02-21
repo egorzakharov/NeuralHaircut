@@ -67,7 +67,7 @@ class OptimizableTexturedStrands(nn.Module):
         file_path = pathlib.Path(__file__).parent.resolve()
         scalp_vert_idx = torch.load(f'{file_path}/../../data/new_scalp_vertex_idx.pth').long().cuda() # indices of scalp vertices
         scalp_faces = torch.load(f'{file_path}/../../data/new_scalp_faces.pth')[None].cuda() # faces that form a scalp
-        scalp_uvs = torch.load(f'{file_path}/../../data/new_scalp_uvcoords.pth').cuda()[None] # generated in Blender uv map for the scalp
+        scalp_uvs = torch.load(f'{file_path}/../../data/improved_neural_haircut_uvmap.pth').cuda()[None] # generated in Blender uv map for the scalp
 
         # Load FLAME head mesh
         if data_dir is not None:
@@ -181,7 +181,7 @@ class OptimizableTexturedStrands(nn.Module):
             self.model_ema.eval()
             
             # Upload pretrained on synthetic data checkpoint
-            diffusion_checkpoint_path = f'{file_path}/../../pretrained_models/diffusion_prior/dif_ckpt.pth'
+            diffusion_checkpoint_path = f'{file_path}/../../pretrained_models/diffusion_prior/wo_bug_blender_uv_00130000.pth'
             ckpt = torch.load(diffusion_checkpoint_path, map_location='cpu')
             self.accelerator.unwrap_model(self.model_ema.inner_model).load_state_dict(ckpt['model_ema'])
             param_to_buffer(self.model_ema)

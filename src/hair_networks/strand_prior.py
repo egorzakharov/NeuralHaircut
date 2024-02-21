@@ -380,14 +380,16 @@ class Encoder(nn.Module):
         return z
 
 class Decoder(nn.Module):
-    def __init__(self, config, latent_dim=64, length=99):
+    def __init__(self, config, latent_dim=64, length=99, dim_hidden=256, num_layers=8, dim_out=3):
         super().__init__()
         print(f'iam decoder with latent dim {latent_dim}')
+        self.dim_out = dim_out
+
         net = SirenNet(
             dim_in = 1,
-            dim_hidden = 256,
-            dim_out = 3,
-            num_layers = 8,
+            dim_hidden = dim_hidden,
+            dim_out = dim_out,
+            num_layers = num_layers,
             w0_initial = 30.
         )
 
@@ -399,6 +401,6 @@ class Decoder(nn.Module):
     
     def forward(self, z):
         v = self.wrapper(z) # B x L x 3
-        v = v.view(z.shape[0], -1, 3)
+        v = v.view(z.shape[0], -1, self.dim_out)
 
         return v
