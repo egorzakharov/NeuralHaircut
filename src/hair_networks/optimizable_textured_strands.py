@@ -41,7 +41,7 @@ def downsample_texture(rect_size, downsample_size):
             kernel_size=patch_size,
             stride=patch_size).cuda()
         unfo = unf(b[None, None]).reshape(-1, downsample_size**2)
-        idx = torch.randint(low=0, high=patch_size**2, size=(1,))
+        idx = torch.randint(low=0, high=patch_size**2, size=(1,), device="cuda")
         idx_ = idx.repeat(downsample_size**2,)
         choosen_val = unfo[idx_, :].diag()
         x = choosen_val // rect_size
