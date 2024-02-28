@@ -33,20 +33,22 @@ from src.utils.sample_points_from_meshes import sample_points_from_meshes
 from src.diffusion_prior.diffusion import make_denoiser_wrapper
 
 
+
 def downsample_texture(rect_size, downsample_size):
-        b = torch.linspace(0, rect_size**2 - 1, rect_size**2, device="cuda").reshape(rect_size, rect_size)
-        
-        patch_size = rect_size // downsample_size
-        unf = torch.nn.Unfold(
-            kernel_size=patch_size,
-            stride=patch_size).cuda()
-        unfo = unf(b[None, None]).reshape(-1, downsample_size**2)
-        idx = torch.randint(low=0, high=patch_size**2, size=(1,), device="cuda")
-        idx_ = idx.repeat(downsample_size**2,)
-        choosen_val = unfo[idx_, :].diag()
-        x = choosen_val // rect_size
-        y = choosen_val % rect_size 
-        return x.long(), y.long()
+    b = torch.linspace(0, rect_size**2 - 1, rect_size**2, device="cuda").reshape(rect_size, rect_size)
+    
+    patch_size = rect_size // downsample_size
+    unf = torch.nn.Unfold(
+        kernel_size=patch_size,
+        stride=patch_size).cuda()
+    unfo = unf(b[None, None]).reshape(-1, downsample_size**2)
+    idx = torch.randint(low=0, high=patch_size**2, size=(1,), device="cuda")
+    idx_ = idx.repeat(downsample_size**2,)
+    choosen_val = unfo[idx_, torch.arange(downsample_size**2, device="cuda")]
+    x = choosen_val // rect_size
+    y = choosen_val % rect_size 
+    return x.long(), y.long()
+
 
 class OptimizableTexturedStrands(nn.Module):
     def __init__(self, 
@@ -146,10 +148,10 @@ class OptimizableTexturedStrands(nn.Module):
         
         # For uniform faces selection
         self.N_faces =  self.scalp_mesh.faces_packed()[None].shape[1]   
-        self.m, self.q = self.num_strands // self.N_faces, self.num_strands % self.N_faces
+        # self.m, self.q = self.num_strands // self.N_faces, self.num_strands % self.N_faces
         
-        if self.use_guiding_strands:
-            self.m_gdn, self.q_gdn = self.num_guiding_strands // self.N_faces, self.num_guiding_strands % self.N_faces
+        # if self.use_guiding_strands:
+        #     self.m_gdn, self.q_gdn = self.num_guiding_strands // self.N_faces, self.num_guiding_strands % self.N_faces
         
         self.faces_dict = {}
         for idx, f in enumerate(face_idx[0].cpu().numpy()):
@@ -202,7 +204,17 @@ class OptimizableTexturedStrands(nn.Module):
                 self.diffuse_mask = torch.tensor(cv2.imread(self.diffuse_mask) / 255)[:, :, :1].squeeze(-1).cuda()
             else:
                 self.diffuse_mask = torch.ones(256, 256).cuda()
-    
+
+            self.rect_size = texture_size
+            self.downsample_size = self.diffusion_input
+
+            b = torch.linspace(0, self.rect_size**2 - 1, self.rect_size**2, device="cuda").reshape(self.rect_size, self.rect_size)
+            self.patch_size = self.rect_size // self.downsample_size
+            unf = torch.nn.Unfold(
+                kernel_size=self.patch_size,
+                stride=self.patch_size).cuda()
+            self.unfo = unf(b[None, None]).reshape(-1, self.downsample_size**2) # all unfolds
+
     def init_scalp_basis(self, scalp_uvs):         
 
         scalp_verts, scalp_faces = self.scalp_mesh.verts_packed()[None], self.scalp_mesh.faces_packed()[None]
@@ -249,11 +261,16 @@ class OptimizableTexturedStrands(nn.Module):
         
         if self.use_diffusion and it is not None and it >= self.start_denoise:
             geo_texture = texture[:, :self.geometry_descriptor_size]
-            textures = []
-            for s in range(self.diffuse_bs):
-                x, y = downsample_texture(texture_res, self.diffusion_input)
-                textures.append(geo_texture[:, :, x, y].reshape(geo_texture.shape[0], geo_texture.shape[1], self.diffusion_input, self.diffusion_input))
-            diffusion_texture = torch.cat(textures)
+
+            idx = torch.randint(low=0, high=self.patch_size**2, size=(self.diffuse_bs, 1), device="cuda")
+            idx_i = idx.repeat(1, self.downsample_size**2).view(-1)
+            idx_j = torch.arange(self.downsample_size**2, device="cuda").view(1, self.downsample_size**2).repeat(self.diffuse_bs, 1).view(-1)
+            choosen_val = self.unfo[idx_i, idx_j]
+            x = choosen_val // self.rect_size
+            y = choosen_val % self.rect_size
+
+            textures = geo_texture[:, :, x.long(), y.long()].split(self.downsample_size**2, dim=-1)
+            diffusion_texture = torch.cat(textures).reshape(self.diffuse_bs, geo_texture.shape[1], self.diffusion_input, self.diffusion_input)
 
             noise = torch.randn_like(diffusion_texture)
             sigma = self.sample_density([diffusion_texture.shape[0]], device='cuda')
@@ -264,24 +281,24 @@ class OptimizableTexturedStrands(nn.Module):
 
             diffusion_dict['L_diff'] = L_diff.mean()       
         
-        m = self.m_gdn if self.use_guiding_strands else self.m
-        q = self.q_gdn if self.use_guiding_strands else self.q
+        # m = self.m_gdn if self.use_guiding_strands else self.m
+        # q = self.q_gdn if self.use_guiding_strands else self.q
         num_strands = self.num_guiding_strands if self.use_guiding_strands else self.num_strands
 
-        # Sample idxes from texture
-        if m:
-            # If the #sampled strands > #scalp faces, then we try to sample more uniformly for better convergence
-            f_idx, count = torch.cat((torch.arange(self.N_faces).repeat(m), torch.randperm(self.N_faces)[:q])).unique(return_counts=True)
+        # # Sample idxes from texture
+        # if m:
+        #     # If the #sampled strands > #scalp faces, then we try to sample more uniformly for better convergence
+        #     f_idx, count = torch.cat((torch.arange(self.N_faces).repeat(m), torch.randperm(self.N_faces)[:q])).unique(return_counts=True)
             
-            current_iter =  dict(zip(f_idx.cpu().numpy(), count.cpu().numpy()))
-            iter_idx = []
+        #     current_iter =  dict(zip(f_idx.cpu().numpy(), count.cpu().numpy()))
+        #     iter_idx = []
 
-            for i in range(self.N_faces):
-                cur_idx_list = torch.tensor(self.faces_dict[i])[torch.randperm(self.faces_count_dict[i])[:current_iter[i]]].tolist()
-                iter_idx.append(cur_idx_list)
-            idx = torch.tensor(list(itertools.chain(*iter_idx)))
-        else:
-            idx = torch.randperm(self.max_num_strands, device=texture.device)[:num_strands]
+        #     for i in range(self.N_faces):
+        #         cur_idx_list = torch.tensor(self.faces_dict[i])[torch.randperm(self.faces_count_dict[i])[:current_iter[i]]].tolist()
+        #         iter_idx.append(cur_idx_list)
+        #     idx = torch.tensor(list(itertools.chain(*iter_idx)))
+        # else:
+        idx = torch.randperm(self.max_num_strands, device=texture.device)[:num_strands]
 
         origins = self.origins[idx]
         uvs = self.uvs[idx]
@@ -307,20 +324,20 @@ class OptimizableTexturedStrands(nn.Module):
         )
 
         if self.use_guiding_strands:
-            # Sample the remaining indices from the texture            
-            if self.m:
-                # If the #sampled strands > #scalp faces, then we try to sample more uniformly for better convergence
-                f_idx, count = torch.cat((torch.arange(self.N_faces).repeat(self.m), torch.randperm(self.N_faces)[:self.q])).unique(return_counts=True)
+            # # Sample the remaining indices from the texture            
+            # if self.m:
+            #     # If the #sampled strands > #scalp faces, then we try to sample more uniformly for better convergence
+            #     f_idx, count = torch.cat((torch.arange(self.N_faces).repeat(self.m), torch.randperm(self.N_faces)[:self.q])).unique(return_counts=True)
                 
-                current_iter =  dict(zip(f_idx.cpu().numpy(), count.cpu().numpy()))
-                iter_idx = []
+            #     current_iter =  dict(zip(f_idx.cpu().numpy(), count.cpu().numpy()))
+            #     iter_idx = []
 
-                for i in range(self.N_faces):
-                    cur_idx_list = torch.tensor(self.faces_dict[i])[torch.randperm(self.faces_count_dict[i])[:current_iter[i]]].tolist()
-                    iter_idx.append(cur_idx_list)
-                idx = torch.tensor(list(itertools.chain(*iter_idx)))
-            else:
-                idx = torch.randperm(self.max_num_strands, device=texture.device)[:self.num_strands]
+            #     for i in range(self.N_faces):
+            #         cur_idx_list = torch.tensor(self.faces_dict[i])[torch.randperm(self.faces_count_dict[i])[:current_iter[i]]].tolist()
+            #         iter_idx.append(cur_idx_list)
+            #     idx = torch.tensor(list(itertools.chain(*iter_idx)))
+            # else:
+            idx = torch.randperm(self.max_num_strands, device=texture.device)[:self.num_strands]
             
             origins_gdn = origins
             uvs_gdn = uvs
