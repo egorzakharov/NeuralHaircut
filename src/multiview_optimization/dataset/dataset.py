@@ -51,9 +51,12 @@ class Multiview_dataset(Dataset):
         self.pixie_init_path = f'{data_path}/initialization_pixie'
         self.batch_size = batch_size
         
-        self.fitted_camera_path = fitted_camera_path
-
         imgs_list = [im_name.split('.')[0] for im_name in sorted(os.listdir(self.image_path))]
+
+        self.fitted_camera_path = fitted_camera_path
+        if fitted_camera_path:
+            world_mats_dict = pickle.load(open(fitted_camera_path, 'rb'))
+            imgs_list = [im_name for im_name in imgs_list if im_name in world_mats_dict.keys()]
  
         if views_idx:
             with open(views_idx, 'rb') as f:
@@ -65,7 +68,6 @@ class Multiview_dataset(Dataset):
 
         if fitted_camera_path:
             print('Overwriting COLMAP cameras with optimized cameras')
-            world_mats_dict = pickle.load(open(fitted_camera_path, 'rb'))
             world_mats_np = [world_mats_dict[im_name].numpy() for im_name in imgs_list]
             scale_mats_np = [np.eye(4) for _ in imgs_list]
 

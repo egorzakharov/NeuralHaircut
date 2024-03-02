@@ -63,6 +63,7 @@ class OptimizableTexturedStrands(nn.Module):
                  cut_scalp=None, 
                  diffusion_cfg=None,
                  data_dir=None,
+                 flame_mesh_path=None,
                  num_guiding_strands=None
                  ):
         super().__init__()
@@ -72,8 +73,8 @@ class OptimizableTexturedStrands(nn.Module):
         scalp_uvs = torch.load(f'{file_path}/../../data/improved_neural_haircut_uvmap.pth').cuda()[None] # generated in Blender uv map for the scalp
 
         # Load FLAME head mesh
-        if data_dir is not None:
-            verts, faces, _ = load_obj(f'{data_dir}/flame_fitting/stage_3/mesh_final.obj', device='cuda')
+        if flame_mesh_path is not None:
+            verts, faces, _ = load_obj(flame_mesh_path, device='cuda')
         else:
             verts, faces, _ = load_obj(path_to_mesh, device='cuda')
         

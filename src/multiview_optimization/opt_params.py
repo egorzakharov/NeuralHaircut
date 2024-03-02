@@ -73,9 +73,12 @@ class OptParams:
     def initialize_parameters(self):
         datas = []
         with open(self.dataset.pixie_init_path, 'rb') as fp:
-            N = len(os.listdir(self.dataset.image_path))
-            for i in range(N):
-                datas.append(pickle.load(fp))
+            try:
+                N = len(os.listdir(self.dataset.image_path))
+                for i in range(N):
+                    datas.append(pickle.load(fp))
+            except:
+                pass
 
         shapes = np.array([i['shape'] for i in datas])
         exps = np.array([i['exp'] for i in datas])
