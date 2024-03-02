@@ -50,7 +50,7 @@ class Multiview_dataset(Dataset):
         self.openpose_kp_path = f'{data_path}/openpose/json'
         self.pixie_init_path = f'{data_path}/initialization_pixie'
         self.batch_size = batch_size
-        
+
         imgs_list = [im_name.split('.')[0] for im_name in sorted(os.listdir(self.image_path))]
 
         self.fitted_camera_path = fitted_camera_path

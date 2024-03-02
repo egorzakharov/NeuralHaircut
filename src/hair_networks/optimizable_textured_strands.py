@@ -63,7 +63,7 @@ class OptimizableTexturedStrands(nn.Module):
                  cut_scalp=None, 
                  diffusion_cfg=None,
                  data_dir=None,
-                 flame_mesh_path=None,
+                 flame_mesh_dir=None,
                  num_guiding_strands=None
                  ):
         super().__init__()
@@ -73,8 +73,8 @@ class OptimizableTexturedStrands(nn.Module):
         scalp_uvs = torch.load(f'{file_path}/../../data/improved_neural_haircut_uvmap.pth').cuda()[None] # generated in Blender uv map for the scalp
 
         # Load FLAME head mesh
-        if flame_mesh_path is not None:
-            verts, faces, _ = load_obj(flame_mesh_path, device='cuda')
+        if flame_mesh_dir is not None:
+            verts, faces, _ = load_obj(f'{flame_mesh_dir}/stage_3/mesh_final.obj', device='cuda')
         else:
             verts, faces, _ = load_obj(path_to_mesh, device='cuda')
         
@@ -102,7 +102,7 @@ class OptimizableTexturedStrands(nn.Module):
         # If we want to use different scalp vertices for scene
         if cut_scalp:
             if data_dir is not None:
-                with open(f'{data_dir}/flame_fitting/scalp_data/cut_scalp_verts.pickle', 'rb') as f:
+                with open(f'{flame_mesh_dir}/scalp_data/cut_scalp_verts.pickle', 'rb') as f:
                     full_scalp_list = sorted(pickle.load(f))
             else:
                 with open(cut_scalp, 'rb') as f:
@@ -196,7 +196,7 @@ class OptimizableTexturedStrands(nn.Module):
             
             # Load scalp mask for hairstyle
             if data_dir is not None:
-                self.diffuse_mask = f'{data_dir}/flame_fitting/scalp_data/dif_mask.png'
+                self.diffuse_mask = f'{flame_mesh_dir}/scalp_data/dif_mask.png'
             else:
                 self.diffuse_mask = diffusion_cfg.get('diffuse_mask', None) 
             
