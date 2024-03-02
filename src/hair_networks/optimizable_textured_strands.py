@@ -101,6 +101,7 @@ class OptimizableTexturedStrands(nn.Module):
         
         # If we want to use different scalp vertices for scene
         if cut_scalp:
+            print('Loading cut scalp')
             if data_dir is not None:
                 with open(f'{flame_mesh_dir}/scalp_data/cut_scalp_verts.pickle', 'rb') as f:
                     full_scalp_list = sorted(pickle.load(f))
