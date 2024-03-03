@@ -374,9 +374,10 @@ class OptimizableTexturedStrands(nn.Module):
             alpha_int = (alpha[knn_idx[:, :K]] * w).sum(dim=1)[:, None, None]
             p_local_int = p_local_int_nearest * alpha_int + p_local_int_bilinear * (1 - alpha_int)
 
-            p_local = torch.cat([p_local_gdn, p_local_int])
-            local2world = torch.cat([local2world_gdn, local2world_int])
             origins = torch.cat([origins_gdn, origins_int])
+            uvs = torch.cat([uvs_gdn, uvs_int])
+            local2world = torch.cat([local2world_gdn, local2world_int])
+            p_local = torch.cat([p_local_gdn, p_local_int])
 
             if self.appearance_descriptor_size:
                 # Get latents for the samples
@@ -386,7 +387,7 @@ class OptimizableTexturedStrands(nn.Module):
 
         p = (local2world[:, None] @ p_local[..., None])[:, :, :3, 0] + origins[:, None] # [num_strands, strang_length, 3]
 
-        return p, z_geom, z_app, diffusion_dict
+        return p, uvs, local2world, p_local, z_geom, z_app, diffusion_dict
     
 
     def forward_inference(self, num_strands): 
@@ -413,6 +414,7 @@ class OptimizableTexturedStrands(nn.Module):
             z_app = None
         
         strands_list = []
+        p_local_list = []
         for i in range(self.num_strands // 2500):
             l, r = i * 2500, (i+1) * 2500
             z_geom_batch = z_geom[l:r]
@@ -426,4 +428,5 @@ class OptimizableTexturedStrands(nn.Module):
             )
             p = (local2world[l:r][:, None] @ p_local[..., None])[:, :, :3, 0] + origins[l:r][:, None] # [num_strands, strang_length, 3]
             strands_list.append(p)
-        return torch.cat(strands_list, dim=0), z_geom, z_app
+            p_local_list.append(p_local)
+        return torch.cat(strands_list, dim=0), uvs, local2world, torch.cat(p_local_list, dim=0), z_geom, z_app
