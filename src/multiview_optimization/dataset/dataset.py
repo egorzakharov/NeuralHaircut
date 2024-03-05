@@ -127,22 +127,32 @@ class Multiview_dataset(Dataset):
         data_openpose = [data_openpose_dict[im_name] for im_name in imgs_list]
 
         self.good_views  = []
+        self.view_scores = []
         mapping = dict(zip(filter_idx, np.arange(len(imgs_list))))
         unmapping = dict(zip(np.arange(len(imgs_list)), filter_idx))
+        print(unmapping)
 
         for i in range(len(data_openpose)):
             if i in filter_idx:
                 if len(data_openpose[i]['people']) > 0:
-                    if np.asarray(data_openpose[i]['people'][0]['face_keypoints_2d']).reshape(-1, 3)[:, 2].mean() > 0.6:
-                        self.good_views.append(mapping[i])        
+                    score = np.asarray(data_openpose[i]['people'][0]['face_keypoints_2d']).reshape(-1, 3)[:, 2].mean()
+                    if score > 0.6:
+                        self.good_views.append(mapping[i])
+                        self.view_scores.append(score)
 
         self.num_views = len(self.good_views)
 
-        self.good_views = [i for i in self.good_views if lmks[i] is not None] # For some views otained landmarks could be bad
+        to_keep = [lmks[i] is not None for i in self.good_views]
+        self.good_views = [self.good_views[i] for i in range(self.num_views) if to_keep[i]] # For some views otained landmarks could be bad
+        self.view_scores = [self.view_scores[i] for i in range(self.num_views) if to_keep[i]] # For some views otained landmarks could be bad
 
         self.nimages = min(len(self.good_views), self.batch_size)
-        self.good_views = np.array(self.good_views)[:self.nimages]
-        
+
+        i_sorted = np.argsort(self.view_scores)[::-1]
+        self.good_views = [self.good_views[i] for i in i_sorted]
+
+        self.good_views = np.sort(np.array(self.good_views)[:self.nimages])
+
         self.openpose_data = OpenposeData(path=self.openpose_kp_path, views=self.good_views, device=self.device, filter_views_mapping=unmapping)    
 
         self.lmks = torch.from_numpy(np.stack([lmks[i] for i in self.good_views]))

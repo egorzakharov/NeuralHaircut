@@ -87,7 +87,7 @@ class OptParams:
         # filter views that have no keypoints
         filtered_views = self.dataset.get_filter_views().cpu().numpy()
 
-        shapes = shapes[filtered_views]
+        shapes = np.zeros_like(shapes[filtered_views])
         jaw_pose = jaw_pose[filtered_views]
         exps = exps[filtered_views]
         
