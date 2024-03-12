@@ -132,7 +132,7 @@ class OptimizableTexturedStrands(nn.Module):
         self.geometry_descriptor_size = geometry_descriptor_size
         self.appearance_descriptor_size = appearance_descriptor_size
 
-        mgrid = torch.stack(torch.meshgrid([torch.linspace(-1, 1, texture_size)]*2))[None].cuda()
+        mgrid = torch.stack(torch.meshgrid([torch.linspace(-1, 1, texture_size)]*2, indexing='xy'))[None].cuda()
         self.register_buffer('encoder_input', positional_encoding(mgrid, 6))
         
         # Initialize the texture decoder network
@@ -195,17 +195,17 @@ class OptimizableTexturedStrands(nn.Module):
             self.start_denoise = diffusion_cfg['start_denoise']
             self.diffuse_bs = diffusion_cfg['diffuse_bs']
             
-            # Load scalp mask for hairstyle
-            if data_dir is not None:
-                self.diffuse_mask = f'{flame_mesh_dir}/scalp_data/dif_mask.png'
-            else:
-                self.diffuse_mask = diffusion_cfg.get('diffuse_mask', None) 
+            # # Load scalp mask for hairstyle
+            # if data_dir is not None:
+            #     self.diffuse_mask = f'{flame_mesh_dir}/scalp_data/dif_mask.png'
+            # else:
+            #     self.diffuse_mask = diffusion_cfg.get('diffuse_mask', None) 
             
-            if os.path.exists(self.diffuse_mask) and self.diffuse_mask:
-                print(f'Loading diffuse mask {self.diffuse_mask}')
-                self.diffuse_mask = torch.tensor(cv2.imread(self.diffuse_mask) / 255)[:, :, :1].squeeze(-1).cuda()
-            else:
-                self.diffuse_mask = torch.ones(256, 256).cuda()
+            # if os.path.exists(self.diffuse_mask) and self.diffuse_mask:
+            #     print(f'Loading diffuse mask {self.diffuse_mask}')
+            #     self.diffuse_mask = torch.tensor(cv2.imread(self.diffuse_mask) / 255)[:, :, :1].squeeze(-1).cuda()
+            # else:
+            self.diffuse_mask = torch.ones(256, 256).cuda()
 
             self.rect_size = texture_size
             self.downsample_size = self.diffusion_input
