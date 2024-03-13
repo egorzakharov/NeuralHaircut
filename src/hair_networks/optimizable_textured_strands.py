@@ -137,6 +137,7 @@ class OptimizableTexturedStrands(nn.Module):
         
         # Initialize the texture decoder network
         self.texture_decoder = UNet(self.encoder_input.shape[1], geometry_descriptor_size + appearance_descriptor_size, bilinear=True)
+        self.texture_decoder.load_state_dict(torch.load(f'{file_path}/../../pretrained_models/texture_decoder.pth'))
 
         self.register_buffer('local2world', self.init_scalp_basis(scalp_uvs))
 
@@ -195,17 +196,17 @@ class OptimizableTexturedStrands(nn.Module):
             self.start_denoise = diffusion_cfg['start_denoise']
             self.diffuse_bs = diffusion_cfg['diffuse_bs']
             
-            # # Load scalp mask for hairstyle
-            # if data_dir is not None:
-            #     self.diffuse_mask = f'{flame_mesh_dir}/scalp_data/dif_mask.png'
-            # else:
-            #     self.diffuse_mask = diffusion_cfg.get('diffuse_mask', None) 
+            # Load scalp mask for hairstyle
+            if data_dir is not None:
+                self.diffuse_mask = f'{flame_mesh_dir}/scalp_data/dif_mask.png'
+            else:
+                self.diffuse_mask = diffusion_cfg.get('diffuse_mask', None) 
             
-            # if os.path.exists(self.diffuse_mask) and self.diffuse_mask:
-            #     print(f'Loading diffuse mask {self.diffuse_mask}')
-            #     self.diffuse_mask = torch.tensor(cv2.imread(self.diffuse_mask) / 255)[:, :, :1].squeeze(-1).cuda()
-            # else:
-            self.diffuse_mask = torch.ones(256, 256).cuda()
+            if os.path.exists(self.diffuse_mask) and self.diffuse_mask:
+                print(f'Loading diffuse mask {self.diffuse_mask}')
+                self.diffuse_mask = torch.tensor(cv2.imread(self.diffuse_mask) / 255)[:, :, :1].squeeze(-1).cuda()
+            else:
+                self.diffuse_mask = torch.ones(256, 256).cuda()
 
             self.rect_size = texture_size
             self.downsample_size = self.diffusion_input
