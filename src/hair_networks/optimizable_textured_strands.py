@@ -137,7 +137,7 @@ class OptimizableTexturedStrands(nn.Module):
         
         # Initialize the texture decoder network
         self.texture_decoder = UNet(self.encoder_input.shape[1], geometry_descriptor_size + appearance_descriptor_size, bilinear=True)
-        self.texture_decoder.load_state_dict(torch.load(f'{file_path}/../../pretrained_models/texture_decoder.pth'))
+        # self.texture_decoder.load_state_dict(torch.load(f'{file_path}/../../pretrained_models/texture_decoder.pth'))
 
         self.register_buffer('local2world', self.init_scalp_basis(scalp_uvs))
 
