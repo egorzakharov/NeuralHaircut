@@ -92,16 +92,16 @@ class Runner:
         return visuals
     
 
-    def fit(self, epochs, lr, max_iter, tol=1e-9):
+    def fit(self, epochs, lr, max_iter, tol=1e-6):
 
         dataloader = DataLoader(
             self.dataset,
-            batch_size=self.dataset.nimages,
-            shuffle=False,
+            batch_size=self.dataset.batch_size,
+            shuffle=True,
             num_workers=0
         )
 
-        for batch_idx, batch in enumerate(dataloader):
+        for epoch in range(0, epochs):
             if epochs > 0:
                 param_lst = self.opt_params.get_train_params_list()
                 # need to create optimizer for every batch so that data for prev batches is not changed
@@ -110,11 +110,11 @@ class Runner:
                     lr=lr, max_iter=max_iter,
                     line_search_fn='strong_wolfe',
                     tolerance_grad=tol, tolerance_change=tol)
-            frame_id_0 = batch['frame_ids'][0]
-            writer = SummaryWriter(log_dir=os.path.join(self.save_path, f'logs/{frame_id_0:06d}'))
+
+            writer = SummaryWriter(log_dir=os.path.join(self.save_path, f'logs'))
             step = 0
 
-            for epoch in range(0, epochs):
+            for batch_idx, batch in enumerate(dataloader):
                 tq = tqdm.tqdm(ncols=100)
                 tq.set_description(f'Epoch {epoch}')
                 tq.refresh()
@@ -137,23 +137,24 @@ class Runner:
                     step += 1
                     loss_values = []
                     
-                    visuals = {}
+                    lm = {}
                     for loss in self.losses:
                         loss_value, lm_gt, lm_pred = loss.compute(pred, batch, img_size=self.img_size, weight=self.loss_weights[loss.label])
                         loss_str, _ = log(loss_str, loss.label, loss_value)
                         loss_values.append(loss_value)
                         if loss.label ==  'openpose_face' or loss.label ==  'openpose_body' or loss.label == 'fa_kpts':
-                            visuals = self.get_visuals(lm_pred.clone(), lm_gt.clone(), loss.label, visuals, batch)                            
+                            lm[loss.label] = {'pred': lm_pred, 'gt': lm_gt}
 
-                    if step % 10 == 0:
+                    if step % 50 == 0:
                         self.dump_results(pred, step, epoch, batch_idx)
-                        
-                    visual_list = process_visuals(visuals)
-                    writer.add_image(f'images', visual_list, step)
+                        visuals = {}
+                        for loss in self.losses:
+                            if loss.label ==  'openpose_face' or loss.label ==  'openpose_body' or loss.label == 'fa_kpts':
+                                visuals = self.get_visuals(lm[loss.label]['pred'].clone(), lm[loss.label]['gt'].clone(), loss.label, visuals, batch)                            
+                        visual_list = process_visuals(visuals)
+                        writer.add_image(f'images', visual_list, step)
 
                     total_loss = torch.stack(loss_values).sum()
-                    if step % 20 == 0:
-                        print(total_loss)
 
                     loss_str, loss_value_cpu = log(loss_str, 'total_loss', total_loss)
                     total_loss.backward()
@@ -170,7 +171,14 @@ class Runner:
 
         # Save the result
         pred = self.forward(batch)
-        save_obj(os.path.join(self.save_path, 'mesh_final.obj'), pred['verts_world'][0], pred['faces_world']) 
+
+        # Scale the mesh
+        print('Scaling the size of the head down by a factor of 0.98')
+        verts = pred['verts_world'][0]
+        center = verts.mean(1, keepdim=True)
+        verts_scaled = (verts - center) * 0.98 + center
+
+        save_obj(os.path.join(self.save_path, 'mesh_final.obj'), verts_scaled, pred['faces_world']) 
         self.opt_params.dump_json_dict(os.path.join(self.save_path, 'opt_params_final'))
     
     def dump_results(self, pred, step, epoch, batch_idx):

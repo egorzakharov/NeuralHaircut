@@ -141,7 +141,6 @@ class OptParams:
         return result
     
     def dump_json_dict(self, fp):
-        print('dump data')
         result = self.get_params_dict_cpu_copy(mode='save')
         with open(fp, 'wb') as f:
             pickle.dump(result, f)

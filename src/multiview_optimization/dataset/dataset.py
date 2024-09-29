@@ -40,6 +40,7 @@ class Multiview_dataset(Dataset):
                  data_path, 
                  fitted_camera_path, 
                  use_scale, 
+                 fixed_images,
                  views_idx='',  
                  device='cuda',
                  batch_size=1):
@@ -49,6 +50,7 @@ class Multiview_dataset(Dataset):
         self.image_path = f'{data_path}/images_4'
         self.openpose_kp_path = f'{data_path}/openpose/json'
         self.pixie_init_path = f'{data_path}/initialization_pixie'
+        self.fixed_images = fixed_images
         self.batch_size = batch_size
 
         imgs_list = [im_name.split('.')[0] for im_name in sorted(os.listdir(self.image_path))]
@@ -130,7 +132,6 @@ class Multiview_dataset(Dataset):
         self.view_scores = []
         mapping = dict(zip(filter_idx, np.arange(len(imgs_list))))
         unmapping = dict(zip(np.arange(len(imgs_list)), filter_idx))
-        print(unmapping)
 
         for i in range(len(data_openpose)):
             if i in filter_idx:
@@ -146,7 +147,10 @@ class Multiview_dataset(Dataset):
         self.good_views = [self.good_views[i] for i in range(self.num_views) if to_keep[i]] # For some views otained landmarks could be bad
         self.view_scores = [self.view_scores[i] for i in range(self.num_views) if to_keep[i]] # For some views otained landmarks could be bad
 
-        self.nimages = min(len(self.good_views), self.batch_size)
+        if self.fixed_images:
+            self.nimages = min(len(self.good_views), self.batch_size)
+        else:
+            self.nimages = len(self.good_views)
 
         i_sorted = np.argsort(self.view_scores)[::-1]
         self.good_views = [self.good_views[i] for i in i_sorted]
@@ -168,7 +172,6 @@ class Multiview_dataset(Dataset):
         return torch.tensor(self.good_views).to(self.device)
         
     def __getitem__(self, index):
-        print(index)
         return {
                 'img': self.images[index].to(self.device), 
                 'lmks': self.lmks[index].to(self.device),

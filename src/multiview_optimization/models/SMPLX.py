@@ -186,7 +186,6 @@ class SMPLX(nn.Module):
             self.part_indices = part_indices
     
     def cut_flame_head(self, verts):
-        print('Cut flame head!')
         head_verts = verts[:, self.head_ind]
         tensor_list = []
         numpy_faces = to_np(self.smplx_model.f, dtype=np.int64)

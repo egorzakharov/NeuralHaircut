@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore")
 
 
 
-def main(conf_path, data_path, fitted_camera_path, use_scale, batch_size, train_rotation, train_pose, train_shape, checkpoint_path, save_path):
+def main(conf_path, data_path, fitted_camera_path, use_scale, batch_size, train_rotation, train_pose, train_shape, fixed_images, checkpoint_path, save_path):
     with open(conf_path) as f:
         conf_text = f.read()
     conf = ConfigFactory.parse_string(conf_text)
@@ -21,7 +21,7 @@ def main(conf_path, data_path, fitted_camera_path, use_scale, batch_size, train_
     # Create SMPLX model from PIXIE
     smplx_model = SMPLX(pixie_cfg.model).to(device) 
 
-    dataset = Multiview_dataset(data_path, fitted_camera_path, use_scale, **conf['dataset'], device=conf['general.device'], batch_size=batch_size)
+    dataset = Multiview_dataset(data_path, fitted_camera_path, use_scale, fixed_images, **conf['dataset'], device=conf['general.device'], batch_size=batch_size)
 
     # Create train losses
     losses = []
@@ -35,7 +35,7 @@ def main(conf_path, data_path, fitted_camera_path, use_scale, batch_size, train_
         losses += [OpenPoseLoss(mode='body', device=device)]
     if conf.get_float('loss.reg_shape_weight'):
         losses += [RegShapeLoss(weight=float(conf['loss.reg_shape_weight']))]
-    print(losses)
+
     loss_weights = {}
     loss_weights['reg_shape'] = conf.get_float('loss.reg_shape_weight')
     loss_weights['openpose_body'] = conf.get_float('loss.openpose_body_weight')
@@ -74,6 +74,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_rotation', type=bool, default=False)
     parser.add_argument('--train_pose', type=bool, default=False)
     parser.add_argument('--train_shape', type=bool, default=False)
+    parser.add_argument('--fixed_images', type=bool, default=False)
     parser.add_argument('--checkpoint_path', type=str, default='')
     parser.add_argument('--save_path', type=str, default='')
     args = parser.parse_args()
@@ -87,6 +88,7 @@ if __name__ == '__main__':
         train_rotation=args.train_rotation, 
         train_pose=args.train_pose,
         train_shape=args.train_shape,
+        fixed_images=args.fixed_images,
         checkpoint_path=args.checkpoint_path,
         save_path = args.save_path
      )
